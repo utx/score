@@ -425,7 +425,7 @@
     const live = g.phase === 'h1' || g.phase === 'h2';
     const over = live && t >= hm;
     sub.classList.toggle('over', over);
-    if (g.phase === 'pre') sub.textContent = '2 halves of ' + mss(hm);
+    if (g.phase === 'pre') sub.textContent = '2 quarters of ' + mss(hm);
     else if (g.phase === 'ht') sub.textContent = '1st half played ' + mss(g.h1End);
     else if (g.phase === 'ft') sub.textContent = 'Full time';
     else if (over) sub.textContent = 'Time up · tap ' + (g.phase === 'h1' ? 'End 1st half' : 'End game');
