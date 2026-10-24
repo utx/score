@@ -238,7 +238,7 @@
     </section>
 
     <div class="footer-actions">
-      <button class="ghost danger" id="resetBtn">New game</button>
+      <button class="ghost danger" id="resetBtn">Reset game</button>
     </div>
   </main>
 
@@ -460,6 +460,7 @@
   $('mainBtn').addEventListener('click', () => {
     unlockAudio();
     const hm = halfMs(g);
+    const before = JSON.parse(JSON.stringify(g));
     if (g.phase === 'pre') {
       g.phase = 'h1'; g.date = Date.now(); startClock();
     } else if (g.phase === 'h1') {
@@ -474,7 +475,18 @@
       g = freshGame(g);
     }
     commit();
+    toast(PHASE_DONE[before.phase], () => restore(before), 8000);
   });
+
+  const PHASE_DONE = { pre: 'Kicked off', h1: '1st half ended', ht: '2nd half started', h2: 'Full time', ft: 'New game' };
+  // Put back a saved copy of the game, e.g. after tapping the main button by mistake.
+  function restore(snapshot) {
+    if (snapshot.phase !== 'ft') {
+      hist = hist.filter((x) => x.id !== snapshot.id);
+      store(LS_HIST, hist);
+    }
+    g = snapshot;
+  }
 
   $('pauseBtn').addEventListener('click', () => {
     if (running()) { g.acc = elapsed(); g.since = null; }
@@ -516,7 +528,9 @@
     g.goals.push(goal);
     if (navigator.vibrate) navigator.vibrate(40);
     commit();
-    toast('⚽ ' + (who || oppName(g)) + ' · ' + clockText(g, m.half, m.t), goal.id);
+    toast('⚽ ' + (who || oppName(g)) + ' · ' + clockText(g, m.half, m.t), () => {
+      g.goals = g.goals.filter((x) => x.id !== goal.id);
+    });
   }
 
   KIDS.forEach((k) => {
@@ -529,18 +543,21 @@
   });
   $('oppBtn').addEventListener('click', () => addGoal(null));
 
-  let toastTimer = null, toastGoal = null;
-  function toast(msg, goalId) {
+  // Brief message with an optional Undo action.
+  let toastTimer = null, toastUndo = null;
+  function toast(msg, undo, ms) {
     $('toastMsg').textContent = msg;
-    toastGoal = goalId;
-    $('toastUndo').hidden = !goalId;
+    toastUndo = undo || null;
+    $('toastUndo').hidden = !toastUndo;
     $('toast').classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => $('toast').classList.remove('show'), 5000);
+    toastTimer = setTimeout(() => $('toast').classList.remove('show'), ms || 5000);
   }
   $('toastUndo').addEventListener('click', () => {
-    g.goals = g.goals.filter((x) => x.id !== toastGoal);
     $('toast').classList.remove('show');
+    if (!toastUndo) return;
+    toastUndo();
+    toastUndo = null;
     commit();
   });
 
@@ -596,11 +613,26 @@
   }
   $('shareBtn').addEventListener('click', () => share(g));
 
+  // During a game: back to Ready (keeping names and length).
+  // At full time: remove this result from history.
   $('resetBtn').addEventListener('click', () => {
-    if (g.phase !== 'pre' && g.phase !== 'ft' &&
-        !confirm('Start a new game? The game in progress will be discarded.')) return;
+    const before = JSON.parse(JSON.stringify(g));
+    if (g.phase === 'ft') {
+      if (!confirm('Delete this result? It will be removed from History.')) return;
+      hist = hist.filter((x) => x.id !== g.id);
+      store(LS_HIST, hist);
+      g = freshGame(g);
+      g.opp = before.opp;
+      commit();
+      toast('Result deleted', () => { g = before; }, 8000);
+      return;
+    }
+    const s = score(g);
+    if (!confirm('Reset the game? The clock goes back to 00:00' + (g.goals.length ? ' and the ' + s.u + '–' + s.o + ' score is cleared' : '') + '.')) return;
     g = freshGame(g);
+    g.opp = before.opp;
     commit();
+    toast('Game reset', () => { g = before; }, 8000);
   });
 
   // ---------- Rendering ----------
@@ -674,7 +706,8 @@
 
     $('log').innerHTML = logHTML(g, true);
     $('shareBtn').hidden = g.phase === 'pre';
-    $('resetBtn').hidden = g.phase === 'pre' || g.phase === 'ft';
+    $('resetBtn').hidden = g.phase === 'pre';
+    $('resetBtn').textContent = g.phase === 'ft' ? 'Delete result' : 'Reset game';
 
     keepAwake(running());
     tick();
