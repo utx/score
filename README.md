@@ -6,7 +6,7 @@ A one-page scorekeeper for the kids' 5-a-side games, made for an iPhone on the s
   When a half's time is up the clock flashes, beeps and keeps counting added time
   until you tap **End 1st half** / **End game**. You can also end a half early.
 - Team name defaults to Partick Thistle (editable before kick-off).
-- One button per player (Alexander, Ashton, Ayash, Carter, Remi, Spike) plus an
+- One button per player (Alexander, Ashton, Ayaash, Carter, Remy, Spike) plus an
   opposition button. Each tap logs the goal with its match time and the running score.
 - Tap a logged goal to change who scored or delete it; each new goal also has a short Undo.
 - Tapped Kick off, End half or End game by mistake? Tap **Undo** in the pop-up that follows.
