@@ -196,7 +196,7 @@
   <main id="viewMatch">
     <section class="card" id="hero">
       <div class="board">
-        <div class="side us"><div class="nm"><button id="usName">Us</button></div><div class="n" id="usScore">0</div></div>
+        <div class="side us"><div class="nm"><button id="usName">Partick Thistle</button></div><div class="n" id="usScore">0</div></div>
         <div class="dash">–</div>
         <div class="side opp"><div class="nm"><button id="oppName">Opposition</button></div><div class="n" id="oppScore">0</div></div>
       </div>
@@ -219,7 +219,7 @@
     </section>
 
     <section class="card names" id="namesCard">
-      <div><label for="teamIn">Our team</label><input id="teamIn" autocomplete="off" placeholder="Us"></div>
+      <div><label for="teamIn">Our team</label><input id="teamIn" autocomplete="off" placeholder="Partick Thistle"></div>
       <div><label for="oppIn">Opposition</label><input id="oppIn" autocomplete="off" placeholder="Opposition"></div>
     </section>
 
@@ -265,6 +265,7 @@
   const KIDS = ['Alexander', 'Ashton', 'Ayash', 'Carter', 'Remi', 'Spike'].sort();
   const LS_CUR = 'score5.current';
   const LS_HIST = 'score5.history';
+  const DEFAULT_TEAM = 'Partick Thistle';
 
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -281,7 +282,7 @@
       id: Date.now().toString(36),
       date: Date.now(),
       length: prev ? prev.length : 25,
-      team: prev ? prev.team : '',
+      team: (prev && prev.team.trim()) || DEFAULT_TEAM,
       opp: '',
       phase: 'pre',      // pre | h1 | ht | h2 | ft
       acc: 0,            // ms played in the current half before the last resume
@@ -294,9 +295,10 @@
   }
 
   let g = load(LS_CUR, null) || freshGame(null);
+  if (!g.team.trim()) g.team = DEFAULT_TEAM;
   let hist = load(LS_HIST, []);
 
-  const teamName = (game) => (game.team || '').trim() || 'Us';
+  const teamName = (game) => (game.team || '').trim() || DEFAULT_TEAM;
   const oppName = (game) => (game.opp || '').trim() || 'Opposition';
   const halfMs = (game) => game.length * 30000;
   const elapsed = () => g.acc + (g.since ? Date.now() - g.since : 0);
