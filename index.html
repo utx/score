@@ -25,6 +25,8 @@
     --opp-soft: #fdebe2;
     --warn: #d97706;
     --warn-soft: #fef3c7;
+    --alert: #dc2626;
+    --alert-soft: #fee2e2;
     --btn: #e7ece9;
     --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.05);
     color-scheme: light dark;
@@ -42,6 +44,8 @@
       --opp-soft: #3a2116;
       --warn: #f59e0b;
       --warn-soft: #3a2c10;
+      --alert: #f87171;
+      --alert-soft: #3d1717;
       --btn: #223029;
       --shadow: none;
     }
@@ -91,7 +95,8 @@
   .sub { text-align: center; color: var(--muted); font-size: 15px; min-height: 21px; }
   .sub.over { color: var(--warn); font-weight: 700; }
   .bars { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 12px 0 14px; }
-  .bars div { height: 6px; border-radius: 3px; background: var(--btn); overflow: hidden; }
+  .bars div { position: relative; height: 8px; border-radius: 4px; background: var(--btn); overflow: hidden; }
+  .bars div::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--muted); opacity: .6; }
   .bars i { display: block; height: 100%; width: 0; background: var(--us); border-radius: 3px; }
   .bars i.over { background: var(--warn); }
   .actions { display: flex; gap: 8px; }
@@ -103,7 +108,18 @@
   .paused .time { animation: blink 1.2s steps(2, start) infinite; }
   @keyframes blink { to { opacity: .35; } }
   .alarm { animation: alarm .5s ease-in-out 6; }
-  @keyframes alarm { 50% { background: var(--warn-soft); } }
+
+  /* Subs reminder at the quarter mark of each half */
+  .subs { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; margin-top: 10px; padding: 8px 12px; border-radius: 12px; font-size: 15px; font-weight: 600; text-align: center; background: var(--btn); color: var(--muted); }
+  .subs.near { background: var(--warn-soft); color: var(--warn); font-weight: 700; }
+  .subs.now { background: var(--alert); color: #fff; font-size: 20px; font-weight: 800; letter-spacing: .03em; animation: subpulse 1s ease-in-out infinite; }
+  .subs.done { background: var(--us-soft); color: var(--us); }
+  .subs button { border: 0; border-radius: 9px; padding: 7px 14px; font-size: 15px; font-weight: 700; background: rgba(255,255,255,.95); color: var(--alert); letter-spacing: 0; }
+  @keyframes subpulse { 50% { background: #991b1b; } }
+  #hero.subnow { background: var(--alert-soft); --flash: #fca5a5; transition: background .3s; }
+  .phase.subnow { background: var(--alert); color: #fff; }
+  .phase.near { background: var(--warn-soft); color: var(--warn); }
+  @keyframes alarm { 50% { background: var(--flash, var(--warn-soft)); } }
 
   /* Names */
   .names { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -210,6 +226,7 @@
         </div>
         <div class="time" id="time">00:00</div>
         <div class="sub" id="sub"></div>
+        <div class="subs" id="subs" hidden><span id="subsText"></span><button id="subsDone" hidden>Done ✓</button></div>
         <div class="bars"><div><i id="bar1"></i></div><div><i id="bar2"></i></div></div>
         <div class="actions">
           <button id="mainBtn" class="main">Kick off</button>
@@ -283,7 +300,7 @@
     return {
       id: Date.now().toString(36),
       date: Date.now(),
-      length: prev ? prev.length : 25,
+      halfMins: prev ? prev.halfMins || prev.length : 25,
       team: (prev && prev.team.trim()) || DEFAULT_TEAM,
       opp: '',
       phase: 'pre',      // pre | h1 | ht | h2 | ft
@@ -291,19 +308,35 @@
       since: null,       // timestamp the clock last started, null when stopped
       h1End: 0,
       h2End: 0,
-      alerted: false,
+      alerted: false,    // end-of-half alarm has gone off
+      subWarned: false,  // "subs soon" beep has gone off this half
+      subAlerted: false, // "subs now" alarm has gone off this half
+      subAck: false,     // Done tapped on the subs reminder this half
       goals: []          // { id, who: kid name or null for opposition, half, t }
     };
   }
 
   let g = load(LS_CUR, null) || freshGame(null);
   if (!g.team.trim()) g.team = DEFAULT_TEAM;
+  // Games saved before halves were 25/20 minutes each stored the whole game as `length`.
+  if (g.phase === 'pre' && !g.halfMins) { g.halfMins = g.length || 25; delete g.length; }
   let hist = load(LS_HIST, []);
   [g].concat(hist).forEach((game) => game.goals.forEach((x) => { if (RENAMED[x.who]) x.who = RENAMED[x.who]; }));
 
   const teamName = (game) => (game.team || '').trim() || DEFAULT_TEAM;
   const oppName = (game) => (game.opp || '').trim() || 'Opposition';
-  const halfMs = (game) => game.length * 30000;
+  const halfMins = (game) => game.halfMins || game.length / 2;
+  const halfMs = (game) => halfMins(game) * 60000;
+  const gameLabel = (game) => game.halfMins ? '2 × ' + game.halfMins + ' min' : game.length + ' min game';
+  const SUB_WARN_MS = 2 * 60000;  // amber "get ready" this long before the quarter mark
+  const SUB_NOW_MS = 60000;       // red "subs now" stays up this long unless Done is tapped
+  function subState(game, t) {
+    const mark = halfMs(game) / 2;
+    if (t < mark - SUB_WARN_MS) return 'later';
+    if (t < mark) return 'near';
+    if (t < mark + SUB_NOW_MS && !game.subAck) return 'now';
+    return 'done';
+  }
   const elapsed = () => g.acc + (g.since ? Date.now() - g.since : 0);
   const running = () => g.since !== null;
 
@@ -379,11 +412,11 @@
       if (audio.state === 'suspended') audio.resume();
     } catch (e) {}
   }
-  function beep() {
+  function beep(times) {
     if (!audio) return;
     try {
       const t0 = audio.currentTime;
-      [0, 0.4, 0.8].forEach((d, i) => {
+      [0, 0.4, 0.8].slice(0, times).forEach((d, i) => {
         const osc = audio.createOscillator();
         const gain = audio.createGain();
         osc.type = 'square';
@@ -430,11 +463,22 @@
     const live = g.phase === 'h1' || g.phase === 'h2';
     const over = live && t >= hm;
     sub.classList.toggle('over', over);
-    if (g.phase === 'pre') sub.textContent = '2 quarters of ' + mss(hm);
+    if (g.phase === 'pre') sub.textContent = '2 halves of ' + mss(hm) + ' · subs at ' + mss(hm / 2) + ' each half';
     else if (g.phase === 'ht') sub.textContent = '1st half played ' + mss(g.h1End);
     else if (g.phase === 'ft') sub.textContent = 'Full time';
     else if (over) sub.textContent = 'Time up · tap ' + (g.phase === 'h1' ? 'End 1st half' : 'End game');
-    else sub.textContent = mss(hm - t) + ' left' + (running() ? '' : ' · paused');
+    else sub.textContent = mss(hm - t) + ' left in half' + (running() ? '' : ' · paused');
+
+    const st = live && !over ? subState(g, t) : null;
+    const subs = $('subs');
+    subs.hidden = !st;
+    subs.className = 'subs ' + (st || '');
+    $('subsDone').hidden = st !== 'now';
+    if (st === 'later') $('subsText').textContent = 'Subs at ' + clockText(g, half, hm / 2) + ' · in ' + mss(hm / 2 - t);
+    else if (st === 'near') $('subsText').textContent = 'Subs in ' + mss(hm / 2 - t) + ' · get them ready';
+    else if (st === 'now') $('subsText').textContent = 'SUBS NOW';
+    else if (st === 'done') $('subsText').textContent = '✓ Subs done';
+    $('hero').classList.toggle('subnow', st === 'now');
 
     const h1t = g.phase === 'h1' ? elapsed() : g.phase === 'pre' ? 0 : g.h1End;
     const h2t = g.phase === 'h2' ? elapsed() : g.phase === 'ft' ? g.h2End : 0;
@@ -444,22 +488,47 @@
     $('bar2').classList.toggle('over', h2t > hm);
 
     const ph = $('phase');
-    ph.classList.toggle('live', live && !over);
+    if (live) ph.textContent = (half === 1 ? '1st half · Q' : '2nd half · Q') + ((half - 1) * 2 + (t < hm / 2 ? 1 : 2));
+    ph.classList.toggle('live', live && !over && st !== 'near' && st !== 'now');
+    ph.classList.toggle('near', st === 'near');
+    ph.classList.toggle('subnow', st === 'now');
     ph.classList.toggle('over', over);
+
+    if (st === 'near' && !g.subWarned) {
+      g.subWarned = true;
+      store(LS_CUR, g);
+      beep(1);
+    }
+    if ((st === 'now' || (live && t >= hm / 2)) && !g.subAlerted) {
+      g.subAlerted = true;
+      store(LS_CUR, g);
+      if (st === 'now') {
+        beep(3);
+        if (navigator.vibrate) navigator.vibrate([300, 150, 300, 150, 300]);
+        flash();
+      }
+    }
 
     if (over && !g.alerted) {
       g.alerted = true;
       store(LS_CUR, g);
-      beep();
+      beep(3);
       if (navigator.vibrate) navigator.vibrate([300, 150, 300, 150, 300]);
-      $('hero').classList.remove('alarm');
-      void $('hero').offsetWidth;
-      $('hero').classList.add('alarm');
+      flash();
     }
   }
+  function flash() {
+    $('hero').classList.remove('alarm');
+    void $('hero').offsetWidth;
+    $('hero').classList.add('alarm');
+  }
+  $('subsDone').addEventListener('click', () => { g.subAck = true; store(LS_CUR, g); tick(); });
   setInterval(tick, 250);
 
-  function startClock() { g.acc = 0; g.since = Date.now(); g.alerted = false; }
+  function startClock() {
+    g.acc = 0; g.since = Date.now();
+    g.alerted = false; g.subWarned = false; g.subAlerted = false; g.subAck = false;
+  }
   function stopClock() { const e = elapsed(); g.acc = 0; g.since = null; return e; }
 
   $('mainBtn').addEventListener('click', () => {
@@ -502,8 +571,13 @@
   $('lenSeg').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-len]');
     if (!b || b.disabled) return;
-    g.length = Number(b.dataset.len);
-    if (elapsed() < halfMs(g)) g.alerted = false;
+    g.halfMins = Number(b.dataset.len);
+    delete g.length;
+    // Re-arm any alerts that the new length moves back into the future.
+    const t = elapsed(), hm = halfMs(g);
+    if (t < hm) g.alerted = false;
+    if (t < hm / 2 - SUB_WARN_MS) g.subWarned = false;
+    if (t < hm / 2) { g.subAlerted = false; g.subAck = false; }
     commit();
   });
 
@@ -594,7 +668,7 @@
   // ---------- Sharing ----------
   function summaryText(game) {
     const s = score(game);
-    const lines = [teamName(game) + ' ' + s.u + '–' + s.o + ' ' + oppName(game), niceDate(game.date) + ' · ' + game.length + ' min game', ''];
+    const lines = [teamName(game) + ' ' + s.u + '–' + s.o + ' ' + oppName(game), niceDate(game.date) + ' · ' + gameLabel(game), ''];
     const tl = timeline(game);
     if (!tl.length) lines.push('No goals');
     [1, 2].forEach((h) => {
@@ -689,7 +763,7 @@
     $('clockBox').classList.toggle('paused', live && !running());
 
     document.querySelectorAll('#lenSeg button').forEach((b) => {
-      b.classList.toggle('on', Number(b.dataset.len) === g.length);
+      b.classList.toggle('on', Number(b.dataset.len) === halfMins(g));
       b.disabled = g.phase === 'h2' || g.phase === 'ft';
     });
 
@@ -757,7 +831,7 @@
       const s = score(game), r = result(game), sc = scorerLine(game);
       return '<details class="game"><summary>' +
         '<div class="g-top"><span class="g-res">' + esc(teamName(game)) + ' ' + s.u + '–' + s.o + ' ' + esc(oppName(game)) + '</span><span class="pill ' + r + '">' + r + '</span></div>' +
-        '<div class="g-date">' + esc(niceDate(game.date)) + ' · ' + game.length + ' min</div>' +
+        '<div class="g-date">' + esc(niceDate(game.date)) + ' · ' + esc(gameLabel(game)) + '</div>' +
         (sc ? '<div class="g-sc">' + esc(sc) + '</div>' : '') +
         '</summary><div class="g-body">' + logHTML(game, false) +
         '<div class="footer-actions" style="margin-top:12px">' +
